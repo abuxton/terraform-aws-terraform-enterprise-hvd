@@ -7,13 +7,14 @@ variable "template_file" {
   }
 }
 
-variable "container_runtime" {
-  type        = string
-  description = "Container runtime to use for TFE. Supported values are 'docker' or 'podman'."
-  default     = "docker"
 
-  validation {
-    condition     = contains(["podman", "docker"], var.container_runtime)
-    error_message = "Supported values are `docker` or `podman`."
-  }
-}
+# variable "container_runtime" {
+#   type        = string
+#   description = "Container runtime to use for TFE. Supported values are 'docker' or 'podman'."
+#   default     = "docker"
+
+#   validation {
+#     condition     = contains(["podman", "docker"], var.container_runtime)
+#     error_message = "Supported values are `docker` or `podman`."
+#   }
+# }
