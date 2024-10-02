@@ -127,7 +127,7 @@ locals {
 
 locals {
   #user_data_template_rendered = templatefile("${path.module}/templates/tfe_user_data.sh.tpl", local.user_data_args)
-  user_data_template_rendered = templatefile(local.template_path, local.user_data_args)
+  user_data_template_rendered = templatefile(local.template_path, local.override_user_data_args)
 }
 
 #------------------------------------------------------------------------------

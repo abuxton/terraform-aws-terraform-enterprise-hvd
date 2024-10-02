@@ -6,7 +6,10 @@ variable "template_file" {
     error_message = "File `./templates/${var.template_file}` not found or not readable"
   }
 }
-
+variable "tfe_release_sequence" {
+  type    = string
+  default = ""
+}
 
 # variable "container_runtime" {
 #   type        = string
