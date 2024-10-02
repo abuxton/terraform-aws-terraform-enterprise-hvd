@@ -1,5 +1,8 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
 #------------------------------------------------------------------------------
-# Log Forwarding (Fluent Bit) config
+# Log forwarding (Fluent Bit) config
 #------------------------------------------------------------------------------
 locals {
   // CloudWatch destination
@@ -33,11 +36,11 @@ locals {
 }
 
 #------------------------------------------------------------------------------
-# User Data (cloud-init) arguments
+# User data (cloud-init) script arguments
 #------------------------------------------------------------------------------
 locals {
   user_data_args = {
-    # bootstrap
+    # Bootstrap
     aws_region                         = data.aws_region.current.name
     tfe_license_secret_arn             = var.tfe_license_secret_arn
     tfe_tls_cert_secret_arn            = var.tfe_tls_cert_secret_arn
@@ -96,8 +99,8 @@ locals {
     tfe_tls_key_file       = "/etc/ssl/private/terraform-enterprise/key.pem"
     tfe_tls_ca_bundle_file = "/etc/ssl/private/terraform-enterprise/bundle.pem"
     tfe_tls_enforce        = var.tfe_tls_enforce
-    tfe_tls_ciphers        = ""
-    tfe_tls_version        = ""
+    tfe_tls_ciphers        = "" # Leave blank to use the default ciphers
+    tfe_tls_version        = "" # Leave blank to use both TLS v1.2 and TLS v1.3
 
     # Observability settings
     tfe_log_forwarding_enabled = var.tfe_log_forwarding_enabled
@@ -111,11 +114,9 @@ locals {
     tfe_vault_disable_mlock = var.tfe_vault_disable_mlock
 
     # Docker driver settings
-    tfe_run_pipeline_docker_extra_hosts = "" # computed inside of tfe_user_data script if `tfe_hairpin_addressing` is `true` because EC2 private IP is used
-    tfe_run_pipeline_docker_network     = var.tfe_run_pipeline_docker_network == null ? "" : var.tfe_run_pipeline_docker_network
-    tfe_disk_cache_path                 = "/var/cache/tfe-task-worker"
-    tfe_disk_cache_volume_name          = "tfe_terraform-enterprise-cache"
-    tfe_hairpin_addressing              = var.lb_is_internal ? true : var.tfe_hairpin_addressing
+    tfe_run_pipeline_docker_network = var.tfe_run_pipeline_docker_network == null ? "" : var.tfe_run_pipeline_docker_network
+    tfe_hairpin_addressing          = var.tfe_hairpin_addressing
+    #tfe_run_pipeline_docker_extra_hosts = "" // computed inside of tfe_user_data script if `tfe_hairpin_addressing` is `true` because EC2 private IP is used
 
     # Network bootstrap settings
     tfe_iact_subnets         = ""
@@ -124,22 +125,26 @@ locals {
   }
 }
 
+locals {
+  #user_data_template_rendered = templatefile("${path.module}/templates/tfe_user_data.sh.tpl", local.user_data_args)
+  user_data_template_rendered = templatefile(local.template_path, local.user_data_args)
+}
+
 #------------------------------------------------------------------------------
-# Launch Template
+# Launch template
 #------------------------------------------------------------------------------
 locals {
-  // If an AMI ID is provided via `var.ec2_ami_id`, use it.
-  // Otherwise, use the latest AMI for the specified OS distro via `var.ec2_os_distro`.
+  // If an AMI ID is provided via `var.ec2_ami_id`, use it. Otherwise,
+  // use the latest AMI for the specified OS distro via `var.ec2_os_distro`.
   ami_id_list = tolist([
     var.ec2_ami_id,
     join("", data.aws_ami.ubuntu.*.image_id),
     join("", data.aws_ami.rhel.*.image_id),
-    join("", data.aws_ami.centos.*.image_id),
-    join("", data.aws_ami.amzn2023.*.image_id),
+    join("", data.aws_ami.al2023.*.image_id),
   ])
 }
 
-# Query the specific AMI being used so we can retreive root_device_name
+// Query the specific AMI being used to retrieve root_device_name.
 data "aws_ami" "selected" {
   filter {
     name   = "image-id"
@@ -152,7 +157,7 @@ resource "aws_launch_template" "tfe" {
   image_id               = data.aws_ami.selected.id
   instance_type          = var.ec2_instance_size
   key_name               = var.ec2_ssh_key_pair
-  user_data              = base64encode(templatefile(local.template_path, local.user_data_args))
+  user_data              = base64gzip(local.user_data_template_rendered)
   update_default_version = true
 
   iam_instance_profile {
@@ -189,7 +194,7 @@ resource "aws_launch_template" "tfe" {
     tags = merge(
       { "Name" = "${var.friendly_name_prefix}-tfe-ec2" },
       { "Type" = "autoscaling-group" },
-      { "OS_Distro" = var.ec2_os_distro },
+      { "OS_distro" = var.ec2_os_distro },
       var.common_tags
     )
   }
@@ -201,7 +206,7 @@ resource "aws_launch_template" "tfe" {
 }
 
 #------------------------------------------------------------------------------
-# Autoscaling Group
+# Autoscaling group
 #------------------------------------------------------------------------------
 resource "aws_autoscaling_group" "tfe" {
   name                      = "${var.friendly_name_prefix}-tfe-asg"
@@ -237,7 +242,7 @@ resource "aws_autoscaling_group" "tfe" {
 }
 
 #------------------------------------------------------------------------------
-# Security Groups
+# Security groups
 #------------------------------------------------------------------------------
 resource "aws_security_group" "ec2_allow_ingress" {
   name   = "${var.friendly_name_prefix}-tfe-ec2-allow-ingress"
@@ -245,54 +250,13 @@ resource "aws_security_group" "ec2_allow_ingress" {
   tags   = merge({ "Name" = "${var.friendly_name_prefix}-tfe-ec2-allow-ingress" }, var.common_tags)
 }
 
-resource "aws_security_group_rule" "ec2_allow_ingress_https_from_lb" {
-  count = var.lb_type == "alb" ? 1 : 0
-
+resource "aws_security_group_rule" "ec2_allow_ingress_tfe_https_from_lb" {
   type                     = "ingress"
   from_port                = 443
   to_port                  = 443
   protocol                 = "tcp"
-  source_security_group_id = aws_security_group.alb_allow_ingress[0].id
+  source_security_group_id = aws_security_group.lb_allow_ingress.id
   description              = "Allow TCP/443 (HTTPS) inbound to TFE EC2 instance(s) from TFE load balancer."
-
-  security_group_id = aws_security_group.ec2_allow_ingress.id
-}
-
-resource "aws_security_group_rule" "ec2_allow_ingress_metrics_http_from_lb" {
-  count = var.lb_type == "alb" ? 1 : 0
-
-  type                     = "ingress"
-  from_port                = var.tfe_metrics_http_port
-  to_port                  = var.tfe_metrics_http_port
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.alb_allow_ingress[0].id
-  description              = "Allow TCP/9090 (HTTP) or specified port inbound to metrics endpoint on TFE EC2 instance(s) from TFE load balancer."
-
-  security_group_id = aws_security_group.ec2_allow_ingress.id
-}
-
-resource "aws_security_group_rule" "ec2_allow_ingress_metrics_https_from_lb" {
-  count = var.lb_type == "alb" ? 1 : 0
-
-  type                     = "ingress"
-  from_port                = var.tfe_metrics_https_port
-  to_port                  = var.tfe_metrics_https_port
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.alb_allow_ingress[0].id
-  description              = "Allow TCP/9091 (HTTPS) or specified port inbound to metrics endpoint on TFE EC2 instance(s) from TFE load balancer."
-
-  security_group_id = aws_security_group.ec2_allow_ingress.id
-}
-
-resource "aws_security_group_rule" "ec2_allow_ingress_https" {
-  count = var.lb_type == "nlb" ? 1 : 0
-
-  type        = "ingress"
-  from_port   = 443
-  to_port     = 443
-  protocol    = "tcp"
-  cidr_blocks = var.cidr_allow_ingress_tfe_443
-  description = "Allow TCP/443 (HTTPS) inbound to TFE EC2 instance(s) from specified CIDR ranges."
 
   security_group_id = aws_security_group.ec2_allow_ingress.id
 }
@@ -323,7 +287,7 @@ resource "aws_security_group_rule" "ec2_allow_ingress_vault" {
   security_group_id = aws_security_group.ec2_allow_ingress.id
 }
 
-resource "aws_security_group_rule" "ec2_allow_cidr_ingress_metrics_http" {
+resource "aws_security_group_rule" "ec2_allow_cidr_ingress_tfe_metrics_http" {
   count = var.tfe_metrics_enable && var.cidr_allow_ingress_tfe_metrics_http != null ? 1 : 0
 
   type        = "ingress"
@@ -336,7 +300,7 @@ resource "aws_security_group_rule" "ec2_allow_cidr_ingress_metrics_http" {
   security_group_id = aws_security_group.ec2_allow_ingress.id
 }
 
-resource "aws_security_group_rule" "ec2_allow_cidr_ingress_metrics_https" {
+resource "aws_security_group_rule" "ec2_allow_cidr_ingress_tfe_metrics_https" {
   count = var.tfe_metrics_enable && var.cidr_allow_ingress_tfe_metrics_https != null ? 1 : 0
 
   type        = "ingress"
