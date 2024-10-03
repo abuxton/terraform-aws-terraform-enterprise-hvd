@@ -12,7 +12,8 @@ provider "aws" {
 }
 
 module "terraform-enterprise-hvd" {
-  source = "../.."
+  # source = "../.."
+  source = "git@github.com:abuxton/terraform-aws-terraform-enterprise-hvd.git?ref=abc-lab"
 
   # --- Common --- #
   friendly_name_prefix = var.friendly_name_prefix
@@ -26,8 +27,9 @@ module "terraform-enterprise-hvd" {
   tfe_tls_ca_bundle_secret_arn       = var.tfe_tls_ca_bundle_secret_arn
 
   # --- TFE configuration settings --- #
-  tfe_fqdn      = var.tfe_fqdn
-  tfe_image_tag = var.tfe_image_tag
+  tfe_fqdn             = var.tfe_fqdn
+  tfe_image_tag        = var.tfe_image_tag
+  tfe_release_sequence = var.tfe_release_sequence
 
   # --- Networking --- #
   vpc_id                     = var.vpc_id
