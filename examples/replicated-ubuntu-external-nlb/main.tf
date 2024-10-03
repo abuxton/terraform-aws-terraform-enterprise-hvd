@@ -12,8 +12,8 @@ provider "aws" {
 }
 
 module "terraform-enterprise-hvd" {
-  # source = "../.."
-  source = "git@github.com:abuxton/terraform-aws-terraform-enterprise-hvd.git?ref=abc-lab"
+  source = "../.."
+  # source = "git@github.com:abuxton/terraform-aws-terraform-enterprise-hvd.git?ref=abc-lab"
 
   # --- Common --- #
   friendly_name_prefix = var.friendly_name_prefix

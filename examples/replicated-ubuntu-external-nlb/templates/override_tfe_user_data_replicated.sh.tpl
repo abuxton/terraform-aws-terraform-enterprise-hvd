@@ -430,7 +430,6 @@ function main() {
 
     chmod -R 0644 $REPL_CONF_PATH
     chmod -R 0644 $TFE_CONFIG_DIR
-    chown -R
 	fi
 
   # log "INFO" "Preparing to download TFE container image..."
