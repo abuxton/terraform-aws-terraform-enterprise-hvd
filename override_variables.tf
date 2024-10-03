@@ -7,8 +7,9 @@ variable "template_file" {
   }
 }
 variable "tfe_release_sequence" {
-  type    = string
-  default = ""
+  type        = number
+  description = "TFE release sequence number within Replicated. This specifies which TFE version to install for an `online` install. Ignored if `airgap_install` is `true`."
+  default     = 776
 }
 
 # variable "container_runtime" {
