@@ -57,13 +57,56 @@ variable "tfe_release_sequence" {
   description = "TFE release sequence number within Replicated. This specifies which TFE version to install for an `online` install. Ignored if `airgap_install` is `true`."
   default     = 764
 }
+```
 
 ## SSH
 
 Addtional route to ssh to the host and use the provided output `instance_state_pubip` ( if you set the `ec2_subnet_ids` to public ips)
 
-```
+```bash
+
  ssh ubuntu@$(tf output -json instance_state_pubip | jq '. |= join( "" ) ') -i ~/.ssh/id_rsa
+
 ```
 
 
+## Backup and restore
+
+> 📝Discovery:  the backup token from <https://developer.hashicorp.com/terraform/enterprise/deploy/manage/backup-restore> works with replicated deployments also you do not need replicated console access.
+
+> 📝Note: the container name differs for Replicated deployments `terraform-enterprise`
+
+```bash
+
+`docker exec -t terraform-enterprise /bin/bash -c 'cat /var/run/terraform-enterprise/backup-restore/config.hcl | grep backup_token`
+```
+
+Once you have the backup token the following can be used to create the payload and execute a backup.
+
+```bash
+export TFE_TOKEN_BACKUP={backup_token}
+export TFE_BACKUP_PASSWORD="your -password"
+
+cat <<EOF > payload.json
+
+{
+  "password": "$TFE_BACKUP_PASSWORD"
+  "skip_object_storage": false
+}
+
+EOF
+
+```
+
+```bash
+
+export TFE_HOSTNAME=$(terraform output -json  tfe_url | jq -r .)
+
+curl \
+  --header "Authorization: Bearer $TFE_TOKEN_BACKUP" \
+  --request POST \
+  --data @payload.json \
+  --output backup.blob \
+  $TFE_HOSTNAME/_backup/api/v1/backup
+
+```
